@@ -5,14 +5,17 @@ import zipfile
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+import time
 
+from tqdm import tqdm
 import httpx
 from loguru import logger
 
 GEONAMES_URL = "https://download.geonames.org/export/zip/allCountries.zip"
 LOCAL_FILE = Path("allCountries.zip")
 EXTRACTED_FILE = Path("allCountries.txt")
-GITHUB_API_URL = "https://api.github.com/repos/Aareon/GeoNamesMirror/releases/latest"
+GITHUB_API_URL = "https://api.github.com/repos/Aareon/GeoNamesMirror/releases"
+
 
 async def check_for_updates() -> bool:
     if LOCAL_FILE.exists():
@@ -34,13 +37,31 @@ async def download_file():
         async with client.stream("GET", GEONAMES_URL) as response:
             response.raise_for_status()
             total_size = int(response.headers.get("Content-Length", 0))
+            
+            chunk_size = 1024 * 1024  # 1 MB chunks
+            downloaded = 0
+            start_time = time.time()
+            last_log_time = start_time
+            log_interval = 5  # Log every 5 seconds
+            
+            with open(LOCAL_FILE, "wb") as f, tqdm(
+                total=total_size, unit='iB', unit_scale=True, desc="Downloading"
+            ) as progress_bar:
+                async for chunk in response.aiter_bytes(chunk_size):
+                    size = f.write(chunk)
+                    downloaded += size
+                    progress_bar.update(size)
+                    
+                    current_time = time.time()
+                    if current_time - last_log_time >= log_interval:
+                        elapsed_time = current_time - start_time
+                        speed = downloaded / elapsed_time / 1024 / 1024  # MB/s
+                        percent = (downloaded / total_size) * 100 if total_size > 0 else 0
+                        logger.info(f"Downloaded: {downloaded/1024/1024:.2f} MB / {total_size/1024/1024:.2f} MB "
+                                    f"({percent:.2f}%) - Speed: {speed:.2f} MB/s")
+                        last_log_time = current_time
 
-            with LOCAL_FILE.open("wb") as f:
-                downloaded = 0
-                async for chunk in response.aiter_bytes():
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    logger.info(f"Downloaded {downloaded}/{total_size} bytes")
+            logger.info(f"Download completed. Total size: {total_size/1024/1024:.2f} MB")
 
 def calculate_md5(filename: Path) -> str:
     hash_md5 = hashlib.md5()
@@ -91,19 +112,37 @@ This release contains the latest GeoNames database {update_status.lower()}.
 """
 
 async def get_previous_checksum():
-    async with httpx.AsyncClient() as client:
-        response = await client.get(GITHUB_API_URL)
-        response.raise_for_status()
-        release_data = response.json()
-        body = release_data.get('body', '')
-        
-        # Extract MD5 checksum from the release notes
-        match = re.search(r'MD5 Checksum: ([a-fA-F0-9]{32})', body)
-        if match:
-            return match.group(1)
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(GITHUB_API_URL, headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28"
+            })
+            response.raise_for_status()
+            releases = response.json()
+            
+            if not releases:
+                logger.info("No previous releases found. This will be the first release.")
+                return None
+            
+            latest_release = releases[0]
+            body = latest_release.get('body', '')
+            
+            # Extract MD5 checksum from the release notes
+            match = re.search(r'MD5 Checksum: ([a-fA-F0-9]{32})', body)
+            if match:
+                return match.group(1)
+            else:
+                logger.warning("MD5 checksum not found in the latest release notes.")
+                return None
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error occurred: {e}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while fetching previous releases: {e}")
     return None
 
 async def main():
+    current_checksum = None
     try:
         if await check_for_updates():
             logger.info("Updating Geonames data...")
@@ -135,7 +174,7 @@ async def main():
 
             logger.info(f"Process complete. Release notes:\n{release_notes}")
         else:
-            logger.info("Geonames data is up to date.")
+            logger.info(f"Geonames data is up to date.{' Checksum: ' + current_checksum + '.' if current_checksum else ''} Last modified: {datetime.fromtimestamp(LOCAL_FILE.stat().st_mtime)}")
     except httpx.HTTPError as e:
         logger.error(f"HTTP error occurred: {e}")
     except IOError as e:

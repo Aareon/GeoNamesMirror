@@ -165,5 +165,7 @@ cython_debug/
 allCountries.txt
 allCountries.zip
 
-# Auto-generated release notes
+# Auto-generated release info
 release_notes.txt
+release_title.txt
+update_status.txt
