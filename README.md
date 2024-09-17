@@ -1,6 +1,7 @@
 # 🌍 GeoNamesMirror
 
 [![Data Update](https://github.com/Aareon/GeoNamesMirror/actions/workflows/update_allCountries.yml/badge.svg)](https://github.com/Aareon/GeoNamesMirror/actions/workflows/update_allCountries.yml)
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Data License: CC BY 4.0](https://img.shields.io/badge/Data%20License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
 Automated mirror of GeoNames geographical database, updated weekly.
