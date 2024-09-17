@@ -1,12 +1,8 @@
-"""
-This script downloads and processes the GeoNames allCountries.zip file.
-It uses the csv module to efficiently process the large dataset.
-"""
-
 import asyncio
 import csv
 import hashlib
 import zipfile
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,7 +12,7 @@ from loguru import logger
 GEONAMES_URL = "https://download.geonames.org/export/zip/allCountries.zip"
 LOCAL_FILE = Path("allCountries.zip")
 EXTRACTED_FILE = Path("allCountries.txt")
-
+GITHUB_API_URL = "https://api.github.com/repos/Aareon/GeoNamesMirror/releases/latest"
 
 async def check_for_updates() -> bool:
     if LOCAL_FILE.exists():
@@ -33,7 +29,6 @@ async def check_for_updates() -> bool:
         return remote_time > local_time
     return True
 
-
 async def download_file():
     async with httpx.AsyncClient() as client:
         async with client.stream("GET", GEONAMES_URL) as response:
@@ -47,7 +42,6 @@ async def download_file():
                     downloaded += len(chunk)
                     logger.info(f"Downloaded {downloaded}/{total_size} bytes")
 
-
 def calculate_md5(filename: Path) -> str:
     hash_md5 = hashlib.md5()
     with filename.open("rb") as f:
@@ -55,11 +49,9 @@ def calculate_md5(filename: Path) -> str:
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
-
 def extract_zip():
     with zipfile.ZipFile(LOCAL_FILE, "r") as zip_ref:
         zip_ref.extractall()
-
 
 def get_statistics():
     total_entries = 0
@@ -81,24 +73,35 @@ def get_statistics():
         "md5_checksum": md5_checksum,
     }
 
-
 def format_file_size(size_bytes):
-    # Convert bytes to megabytes
     size_mb = size_bytes / (1024 * 1024)
     return f"{size_mb:.2f} MB"
 
-
-def create_release_notes(stats):
-    return f"""GeoNames Database Update
+def create_release_notes(stats, is_update):
+    update_status = "Update" if is_update else "No changes"
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    return f"""GeoNames Database {update_status} - {current_date}
 
 - Total Entries: {stats['total_entries']:,}
 - Countries Covered: {stats['country_count']}
 - File Size: {format_file_size(stats['file_size'])}
 - MD5 Checksum: {stats['md5_checksum']}
 
-This release contains the latest GeoNames database update.
+This release contains the latest GeoNames database {update_status.lower()}.
 """
 
+async def get_previous_checksum():
+    async with httpx.AsyncClient() as client:
+        response = await client.get(GITHUB_API_URL)
+        response.raise_for_status()
+        release_data = response.json()
+        body = release_data.get('body', '')
+        
+        # Extract MD5 checksum from the release notes
+        match = re.search(r'MD5 Checksum: ([a-fA-F0-9]{32})', body)
+        if match:
+            return match.group(1)
+    return None
 
 async def main():
     try:
@@ -107,13 +110,30 @@ async def main():
             await download_file()
             extract_zip()
             stats = get_statistics()
-            release_notes = create_release_notes(stats)
+            
+            previous_checksum = await get_previous_checksum()
+            current_checksum = stats['md5_checksum']
+            
+            is_update = previous_checksum != current_checksum
+            release_notes = create_release_notes(stats, is_update)
 
-            # Write release notes to a file for GitHub Actions to use
+            if is_update:
+                logger.info("New data detected. Creating release.")
+            else:
+                logger.info("No changes in data. Skipping release creation.")
+
+            # Write release notes and update status to files for GitHub Actions to use
             with open("release_notes.txt", "w") as f:
                 f.write(release_notes)
+            
+            with open("update_status.txt", "w") as f:
+                f.write("update" if is_update else "no_update")
+            
+            # Write release title to a separate file
+            with open("release_title.txt", "w") as f:
+                f.write(release_notes.split('\n')[0])
 
-            logger.info(f"Update complete. Release notes:\n{release_notes}")
+            logger.info(f"Process complete. Release notes:\n{release_notes}")
         else:
             logger.info("Geonames data is up to date.")
     except httpx.HTTPError as e:
@@ -122,7 +142,6 @@ async def main():
         logger.error(f"I/O error occurred: {e}")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

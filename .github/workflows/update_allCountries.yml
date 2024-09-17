@@ -29,6 +29,14 @@ jobs:
 
     - name: Run update script
       run: python update_allCountries.py
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Check update status
+      id: check_update
+      run: |
+        UPDATE_STATUS=$(cat update_status.txt)
+        echo "UPDATE_STATUS=$UPDATE_STATUS" >> $GITHUB_OUTPUT
 
     - name: Read release notes
       id: release_notes
@@ -38,12 +46,16 @@ jobs:
         echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
+    - name: Read release title
+      id: release_title
+      run: echo "RELEASE_TITLE=$(cat release_title.txt)" >> $GITHUB_OUTPUT
+
     - name: Create Release
-      id: create_release
+      if: steps.check_update.outputs.UPDATE_STATUS == 'update'
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: release-${{ github.run_number }}
-        name: Release ${{ github.run_number }}
+        tag_name: ${{ github.ref_name }}-${{ github.run_number }}
+        name: ${{ steps.release_title.outputs.RELEASE_TITLE }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         files: allCountries.zip
         draft: false
