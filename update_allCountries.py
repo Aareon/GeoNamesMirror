@@ -116,10 +116,10 @@ def create_release_notes(stats, is_update):
     current_date = datetime.now().strftime("%Y-%m-%d")
     return f"""GeoNames Database {update_status} - {current_date}
 
-- Total Entries: {stats['total_entries']:,}
-- Countries Covered: {stats['country_count']}
-- File Size: {format_file_size(stats['file_size'])}
-- MD5 Checksum: {stats['md5_checksum']}
+- Total Entries: `{stats['total_entries']:,}`
+- Countries Covered: `{stats['country_count']}`
+- File Size: `{format_file_size(stats['file_size'])}`
+- MD5 Checksum: `{stats['md5_checksum']}`
 
 This release contains the latest GeoNames database {update_status.lower()}.
 """
