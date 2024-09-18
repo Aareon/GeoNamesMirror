@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 import time
+import os
 
 from tqdm import tqdm
 import httpx
@@ -112,10 +113,18 @@ This release contains the latest GeoNames database {update_status.lower()}.
 """
 
 async def get_previous_checksum():
+    GITHUB_API_URL = "https://api.github.com/repos/Aareon/GeoNamesMirror/releases"
+    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+    
+    if not GITHUB_TOKEN:
+        logger.error("GITHUB_TOKEN environment variable is not set.")
+        return None
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(GITHUB_API_URL, headers={
                 "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
                 "X-GitHub-Api-Version": "2022-11-28"
             })
             response.raise_for_status()
